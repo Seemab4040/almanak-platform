@@ -113,7 +113,6 @@ const Sidebar = ({ activeSection, setActiveSection, darkMode, userAssociations, 
     { id: 'legal', icon: <Scale size={20} />, label: 'Legal Services' },
     { id: 'complaints', icon: <AlertCircle size={20} />, label: 'Complaints' },
     { id: 'board', icon: <Users size={20} />, label: 'Key Personal' },
-      { id: 'users', icon: <Users size={20} />, label: 'User Management' },
   ];
   return (
     <aside className={`w-64 border-r flex flex-col h-screen shrink-0 transition-colors duration-300 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
@@ -204,7 +203,6 @@ const headerTitles = {
   legal: { title: 'Legal Services', subtitle: 'Active legal cases and actions' },
   complaints: { title: 'Complaints', subtitle: 'Owner complaints and resolutions' },
   board: { title: 'Key Personal & Management', subtitle: 'Key personnel and association management' },
-    users: { title: 'User Management', subtitle: 'Manage association users and access' },
 };
 
 const Header = ({ activeSection, darkMode, setDarkMode, onLogout, currentUser }) => {
@@ -1925,185 +1923,12 @@ const Board = ({ boardMembers, setBoardMembers, documents, setDocuments, selecte
   );
 };
 
-
-// --- USER MANAGEMENT ---
-const UserManagement = ({ selectedAssociation }) => {
-  const [users, setUsers] = useState([]);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'Member' });
-  const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
-  const [maxUsers, setMaxUsers] = useState(5);
-  const [currentUsers, setCurrentUsers] = useState(0);
-  
-  const showToast = (message, type = 'info') => {
-    setToast({ show: true, message, type });
-    setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 3000);
-  };
-  
-  useEffect(() => {
-    if (selectedAssociation?.id) {
-      fetchUsers();
-      fetchAssociationLimits();
-    }
-  }, [selectedAssociation]);
-  
-  const fetchUsers = async () => {
-    try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/user_associations?association_id=eq.${selectedAssociation.id}&select=*,app_users(*)`, { headers: hdrs });
-      if (res.ok) setUsers(await res.json());
-    } catch (err) { console.error(err); }
-  };
-  
-  const fetchAssociationLimits = async () => {
-    try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/associations?id=eq.${selectedAssociation.id}`, { headers: hdrs });
-      if (res.ok) {
-        const assocs = await res.json();
-        if (assocs.length > 0) {
-          setMaxUsers(assocs[0].max_users || 5);
-          setCurrentUsers(assocs[0].current_users || 0);
-        }
-      }
-    } catch (err) { console.error(err); }
-  };
-  
-  const handleAddUser = async (e) => {
-    e.preventDefault();
-    if (!userForm.name || !userForm.email || !userForm.password) {
-      showToast('Please fill all fields', 'error');
-      return;
-    }
-    
-    // Check user limit
-    if (currentUsers >= maxUsers) {
-      showToast(`Maximum user limit reached (${maxUsers} users)`, 'error');
-      return;
-    }
-    
-    setSaving(true);
-    try {
-      // Create user account
-      const userRes = await fetch(`${SUPABASE_URL}/rest/v1/app_users`, {
-        method: 'POST',
-        headers: { ...hdrs, 'Prefer': 'return=representation' },
-        body: JSON.stringify({ ...userForm, role: userForm.role })
-      });
-      
-      if (!userRes.ok) {
-        const error = await userRes.json();
-        throw new Error(error.message || 'Failed to create user');
-      }
-      
-      const newUsers = await userRes.json();
-      const newUser = newUsers[0];
-      
-      // Link user to association
-      await fetch(`${SUPABASE_URL}/rest/v1/user_associations`, {
-        method: 'POST',
-        headers: { ...hdrs, 'Prefer': 'return=representation' },
-        body: JSON.stringify({ 
-          user_id: newUser.id, 
-          association_id: selectedAssociation.id, 
-          role: userForm.role 
-        })
-      });
-      
-      fetchUsers();
-      fetchAssociationLimits();
-      setShowAddModal(false);
-      setUserForm({ name: '', email: '', password: '', role: 'Member' });
-      showToast('User added successfully', 'success');
-    } catch (err) {
-      showToast(err.message || 'Failed to add user', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-  
-  const handleRemoveUser = async (userId, userAssocId) => {
-    if (!confirm('Remove this user from the association?')) return;
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/user_associations?id=eq.${userAssocId}`, { method: 'DELETE', headers: hdrs });
-      fetchUsers();
-      fetchAssociationLimits();
-      showToast('User removed', 'success');
-    } catch (err) {
-      showToast('Failed to remove user', 'error');
-    }
-  };
-  
-  const canAddMore = currentUsers < maxUsers;
-  
-  return (
-    <div className="animate-fade-in">
-      <Toast message={toast.message} show={toast.show} onClose={() => setToast({ ...toast, show: false })} type={toast.type} />
-      
-      <Modal open={showAddModal} onClose={() => setShowAddModal(false)} title="Add User to Association">
-        <form onSubmit={handleAddUser} className="space-y-3">
-          <TextInput label="Full Name" value={userForm.name} onChange={v => setUserForm({...userForm, name: v})} placeholder="e.g. Ahmed Al-Mahmood" />
-          <TextInput label="Email Address" value={userForm.email} onChange={v => setUserForm({...userForm, email: v})} placeholder="user@example.com" type="email" />
-          <TextInput label="Password" value={userForm.password} onChange={v => setUserForm({...userForm, password: v})} placeholder="Minimum 6 characters" type="password" />
-          <SelectInput label="Role" value={userForm.role} onChange={v => setUserForm({...userForm, role: v})} options={[{value:'Member',label:'Member'},{value:'Treasurer',label:'Treasurer'},{value:'Secretary',label:'Secretary'}]} />
-          <SubmitBtn loading={saving} label="Add User" />
-        </form>
-      </Modal>
-      
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <MetricCard label="Total Users" value={String(currentUsers)} subtext={`of ${maxUsers} maximum`} />
-        <MetricCard label="Available Slots" value={String(maxUsers - currentUsers)} subtext={canAddMore ? 'Can add more' : 'Limit reached'} alert={!canAddMore} />
-        <MetricCard label="Association" value={selectedAssociation?.name || 'N/A'} subtext="Current association" />
-      </div>
-      
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="font-semibold text-slate-800">Association Users ({currentUsers}/{maxUsers})</h3>
-          <button 
-            onClick={() => setShowAddModal(true)} 
-            disabled={!canAddMore}
-            className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg transition-colors ${canAddMore ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
-          >
-            <Plus size={13} /> Add User {!canAddMore && '(Limit Reached)'}
-          </button>
-        </div>
-        
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-100">
-              <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase">Name</th>
-              <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase">Email</th>
-              <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase">Role</th>
-              <th className="text-left p-3 text-xs font-semibold text-slate-500 uppercase">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(ua => (
-              <tr key={ua.id} className="border-b border-slate-50 hover:bg-slate-50">
-                <td className="p-3 font-medium text-slate-800">{ua.app_users?.name}</td>
-                <td className="p-3 text-slate-600">{ua.app_users?.email}</td>
-                <td className="p-3"><StatusBadge status={ua.role.toLowerCase()} /></td>
-                <td className="p-3">
-                  {ua.app_users?.email !== 'admin@sahwanlaw.com' && (
-                    <button onClick={() => handleRemoveUser(ua.app_users.id, ua.id)} className="text-xs text-red-600 font-semibold hover:underline">Remove</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
 // --- MAIN APP ---
 
 // --- LOGIN / SIGNUP PAGES ---
-const AuthPage = ({ showLogin, setShowLogin, onLogin, onSignup, availableAssociations }) => {
-  const [selectedAuthAssoc, setSelectedAuthAssoc] = useState(null);
+const AuthPage = ({ showLogin, setShowLogin, onLogin, onSignup }) => {
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [signupForm, setSignupForm] = useState({ name: '', email: '', password: '', confirmPassword: '' });
-  const [selectedAssociation, setSelectedAssociation] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
@@ -2114,13 +1939,9 @@ const AuthPage = ({ showLogin, setShowLogin, onLogin, onSignup, availableAssocia
       setError('Please fill in all fields');
       return;
     }
-    if (!selectedAuthAssoc) {
-      setError('Please select an association');
-      return;
-    }
     setLoading(true);
-    setTimeout(async () => {
-      const success = await onLogin(loginForm.email, loginForm.password, selectedAuthAssoc);
+    setTimeout(() => {
+      const success = onLogin(loginForm.email, loginForm.password);
       if (!success) setError('Invalid credentials');
       setLoading(false);
     }, 800);
@@ -2188,20 +2009,6 @@ const AuthPage = ({ showLogin, setShowLogin, onLogin, onSignup, availableAssocia
             {showLogin ? (
               <form onSubmit={handleLoginSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Select Association *</label>
-                  <select 
-                    value={selectedAuthAssoc || ''} 
-                    onChange={(e) => setSelectedAuthAssoc(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                    required
-                  >
-                    <option value="">Choose your association...</option>
-                    {availableAssociations.map(assoc => (
-                      <option key={assoc.id} value={assoc.id}>{assoc.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email Address</label>
                   <input type="email" value={loginForm.email} onChange={(e) => setLoginForm({...loginForm, email: e.target.value})} placeholder="your@email.com" className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent" />
                 </div>
@@ -2263,8 +2070,6 @@ export default function App() {
   const [activeSection, setActiveSection] = useState('dashboard');
   const [userAssociations, setUserAssociations] = useState([]);
   const [selectedAssociation, setSelectedAssociation] = useState(null);
-  const [allAssociations, setAllAssociations] = useState([]);
-  const [allAssociations, setAllAssociations] = useState([]);
   const [boardMembers, setBoardMembers] = useState([]);
   const [meetings, setMeetings] = useState([]);
   const [complianceItems, setComplianceItems] = useState([]);
@@ -2301,46 +2106,17 @@ export default function App() {
       localStorage.setItem('al_malak_user', JSON.stringify({ id: user.id, name: user.name, email: user.email, role: user.role }));
       setCurrentUser({ id: user.id, name: user.name, email: user.email, role: user.role });
       
-      // Check if admin (sahwanlaw.com)
-      const isAdmin = user.email === 'admin@sahwanlaw.com';
-      
-      if (isAdmin) {
-        // Admin has access to all associations
-        const allAssocRes = await fetch(`${SUPABASE_URL}/rest/v1/associations?order=name`, { headers: hdrs });
-        if (allAssocRes.ok) {
-          const allAssocs = await allAssocRes.json();
-          // Format as user associations for compatibility
-          const adminAssocs = allAssocs.map(a => ({ associations: a, role: 'Admin' }));
-          setUserAssociations(adminAssocs);
-          
-          // Set selected association based on login choice
-          const selectedAssoc = allAssocs.find(a => a.id == associationId);
-          if (selectedAssoc) {
-            setSelectedAssociation(selectedAssoc);
-            localStorage.setItem('al_malak_selected_assoc', JSON.stringify(selectedAssoc));
-          }
-        }
-      } else {
-        // Regular user - fetch their associations
-        const assocRes = await fetch(`${SUPABASE_URL}/rest/v1/user_associations?user_id=eq.${user.id}&select=*,associations(*)`, { headers: hdrs });
-        if (assocRes.ok) {
-          const userAssocs = await assocRes.json();
-          
-          // Check if user has access to selected association
-          const hasAccess = userAssocs.some(ua => ua.associations.id == associationId);
-          if (!hasAccess) {
-            alert('You do not have access to this association');
-            return false;
-          }
-          
-          setUserAssociations(userAssocs);
-          
-          // Set selected association based on login choice
-          const selectedAssoc = userAssocs.find(ua => ua.associations.id == associationId);
-          if (selectedAssoc) {
-            setSelectedAssociation(selectedAssoc.associations);
-            localStorage.setItem('al_malak_selected_assoc', JSON.stringify(selectedAssoc.associations));
-          }
+      // Fetch user's associations
+      const assocRes = await fetch(`${SUPABASE_URL}/rest/v1/user_associations?user_id=eq.${user.id}&select=*,associations(*)`, { headers: hdrs });
+      if (assocRes.ok) {
+        const userAssocs = await assocRes.json();
+        setUserAssociations(userAssocs);
+        
+        // Set first association as default
+        if (userAssocs.length > 0) {
+          const firstAssoc = userAssocs[0].associations;
+          setSelectedAssociation(firstAssoc);
+          localStorage.setItem('al_malak_selected_assoc', JSON.stringify(firstAssoc));
         }
       }
       
@@ -2353,7 +2129,7 @@ export default function App() {
     }
   };
   
-  const handleLogin = async (email, password, associationId) => {
+  const handleLogin = async (email, password) => {
     try {
       // Query Supabase for user
       const res = await fetch(`${SUPABASE_URL}/rest/v1/app_users?email=eq.${encodeURIComponent(email)}&password=eq.${encodeURIComponent(password)}`, { headers: hdrs });
@@ -2368,44 +2144,17 @@ export default function App() {
       localStorage.setItem('al_malak_user', JSON.stringify({ id: user.id, name: user.name, email: user.email, role: user.role }));
       setCurrentUser({ id: user.id, name: user.name, email: user.email, role: user.role });
       
-      // Check if admin (sahwanlaw.com email)
-      const isAdmin = user.email === 'admin@sahwanlaw.com';
-      
-      if (isAdmin) {
-        // Admin has access to ALL associations
-        const allRes = await fetch(`${SUPABASE_URL}/rest/v1/associations?order=name`, { headers: hdrs });
-        if (allRes.ok) {
-          const allAssocs = await allRes.json();
-          // Format as userAssociations for compatibility
-          setUserAssociations(allAssocs.map(a => ({ associations: a, role: 'Admin' })));
-          
-          // Set selected association from login choice
-          const selected = allAssocs.find(a => a.id == associationId);
-          if (selected) {
-            setSelectedAssociation(selected);
-            localStorage.setItem('al_malak_selected_assoc', JSON.stringify(selected));
-          }
-        }
-      } else {
-        // Regular user - check their associations
-        const assocRes = await fetch(`${SUPABASE_URL}/rest/v1/user_associations?user_id=eq.${user.id}&select=*,associations(*)`, { headers: hdrs });
-        if (assocRes.ok) {
-          const userAssocs = await assocRes.json();
-          
-          // Verify user has access to selected association
-          const hasAccess = userAssocs.some(ua => ua.associations.id == associationId);
-          if (!hasAccess) {
-            return false; // Access denied
-          }
-          
-          setUserAssociations(userAssocs);
-          
-          // Set selected association from login choice
-          const selected = userAssocs.find(ua => ua.associations.id == associationId);
-          if (selected) {
-            setSelectedAssociation(selected.associations);
-            localStorage.setItem('al_malak_selected_assoc', JSON.stringify(selected.associations));
-          }
+      // Fetch user's associations
+      const assocRes = await fetch(`${SUPABASE_URL}/rest/v1/user_associations?user_id=eq.${user.id}&select=*,associations(*)`, { headers: hdrs });
+      if (assocRes.ok) {
+        const userAssocs = await assocRes.json();
+        setUserAssociations(userAssocs);
+        
+        // Set first association as default
+        if (userAssocs.length > 0) {
+          const firstAssoc = userAssocs[0].associations;
+          setSelectedAssociation(firstAssoc);
+          localStorage.setItem('al_malak_selected_assoc', JSON.stringify(firstAssoc));
         }
       }
       
@@ -2461,40 +2210,7 @@ export default function App() {
     loadAllData();
   };
   
-  // Fetch all associations for login page
-  useEffect(() => {
-    fetchAllAssociations();
-  }, []);
-  
-  const fetchAllAssociations = async () => {
-    try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/associations?order=name`, { headers: hdrs });
-      if (res.ok) {
-        const assocs = await res.json();
-        setAllAssociations(assocs);
-      }
-    } catch (err) {
-      console.error('Failed to fetch associations:', err);
-    }
-  };
-  
-  // Fetch all associations for login dropdown
-  useEffect(() => {
-    fetchAllAssociations();
-  }, []);
-  
-  const fetchAllAssociations = async () => {
-    try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/associations?order=name`, { headers: hdrs });
-      if (res.ok) {
-        setAllAssociations(await res.json());
-      }
-    } catch (err) {
-      console.error('Failed to fetch associations:', err);
-    }
-  };
-  
-    // Restore session on page load
+  // Restore session on page load
   useEffect(() => {
     const savedUser = localStorage.getItem('al_malak_user');
     const savedAssoc = localStorage.getItem('al_malak_selected_assoc');
@@ -2544,7 +2260,6 @@ export default function App() {
       case 'legal': return <Legal legalCases={legalCases} setLegalCases={setLegalCases} selectedAssociation={selectedAssociation} />;
       case 'complaints': return <Complaints complaints={complaints} setComplaints={setComplaints} selectedAssociation={selectedAssociation} />;
       case 'board': return <Board boardMembers={boardMembers} setBoardMembers={setBoardMembers} documents={documents} setDocuments={setDocuments} selectedAssociation={selectedAssociation} />;
-      case 'users': return <UserManagement selectedAssociation={selectedAssociation} />;
       default: return <Dashboard meetings={meetings} legalCases={legalCases} complianceItems={complianceItems} setActiveSection={setActiveSection} setMeetings={setMeetings} selectedAssociation={selectedAssociation} />;
     }
   };
@@ -2552,7 +2267,7 @@ export default function App() {
   return (
     <>
       {!isAuthenticated ? (
-        <AuthPage showLogin={showLogin} setShowLogin={setShowLogin} onLogin={handleLogin} onSignup={handleSignup} availableAssociations={allAssociations} />
+        <AuthPage showLogin={showLogin} setShowLogin={setShowLogin} onLogin={handleLogin} onSignup={handleSignup} />
       ) : (
         <div className={`min-h-screen flex text-slate-900 font-sans transition-colors duration-300 ${darkMode ? 'bg-slate-900' : 'bg-slate-50'}`}>
           <Sidebar activeSection={activeSection} setActiveSection={setActiveSection} darkMode={darkMode} userAssociations={userAssociations} selectedAssociation={selectedAssociation} onAssociationChange={handleAssociationChange} />
